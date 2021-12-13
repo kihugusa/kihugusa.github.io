@@ -1,0 +1,273 @@
+---
+title: "Data Project - Stock Exchange Data"
+author: "Samuel Kihuguru"
+date: "12/10/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup}
+library(tidyverse)
+library(lubridate)
+```
+
+============================================
+
+## Stock Index Project
+
+This is R Markdown data project analyzes stock index data across 11 exchanges. The data files being used for this report are indexData.csv, indexProcessed.csv, and indexInfo.csv. These comma-separated values files were imported from Kaggle, a community interface of data scientists and machine learning practitioners. For more details on accessing the Kaggle data, click the link [here](https://www.kaggle.com/mattiuzc/stock-exchange-data).
+
+
+```{r wrangling}
+indexD <- read_csv("indexData.csv")
+indexI <- read_csv("indexInfo.csv")
+indexP <- read_csv("indexProcessed.csv")
+```
+
+Before undertaking the data analysis process, the datasets of interest must be cleaned and made consistent. There are three datasets we are working on: indexD, indexI, and indexP. Each of these tables has variables that require changes to their data type. For example, the Index column in indexD which shows the ticker symbols for each of the exchanges would need to move from a character("chr") variable to a factor variable.
+
+```{r data cleaning, warning=FALSE}
+# Index in indexD needs to be a Factor
+indexD$Index <- factor(indexD$Index)
+
+# Open, High, Low, Close, Adj Close, Volume need to be numeric
+indexD$Open <- as.numeric(indexD$Open)
+indexD$High <- as.numeric(indexD$High)
+indexD$Low <- as.numeric(indexD$Low)
+indexD$Close <- as.numeric(indexD$Close)
+indexD$`Adj Close` <- as.numeric(indexD$`Adj Close`)
+indexD$Volume <- as.numeric(indexD$Volume)
+
+# Data cleaning for indexInfo
+indexI$Region <- factor(indexI$Region)
+indexI$Exchange <- factor(indexI$Exchange)
+indexI$Index <- factor(indexI$Index)
+indexI$Currency <- factor(indexI$Currency)
+
+# Data cleaning for indexProcessed
+indexP$Index <- factor(indexP$Index)
+
+```
+
+Throughout the report, you will encounter Index symbols associated with the Exchanges. The following are the ticker symbols with their exchange name:
+
+* NYA --- New York Stock Exchange
+* IXIC --- NASDAQ
+* HSI --- Hong Kong Stock Exchange
+* 000001.SS --- Shanghai Stock Exchange
+* N225 --- Tokyo Stock Exchange
+* N100 --- Euronext
+* 399001.SZ --- Shenzhen Stock Exchange
+* GSPSTE --- Toronto Stock Exchange
+* NSEI --- National Stock Exchange of India
+* GDAX1 --- Frankfurt Stock Exchange
+* KS11 --- Korea Exchange
+* SSMI --- SIX Swiss Exchange
+* TWII --- Taiwan Stock Exchange
+* J203.JO --- Johannesburg Stock Exchange
+
+```{r info}
+indexI %>% 
+  select(Index,Exchange,Region)
+```
+
+## Including Plots
+
+*Q1*
+
+What is the average price return by Index? What is the Daily Return and Daily Return (%) for each index price?
+
+```{r question 1}
+indexD %>% 
+  mutate(Daily_Return = `Adj Close`-lag(`Adj Close`)) %>% 
+  mutate(Daily_Return_Perc. = (`Adj Close`-lag(`Adj Close`))*100/lag(`Adj Close`)) %>% 
+  select(Index, Date, Open, High, Low, Close, Daily_Return,Daily_Return_Perc.) %>% 
+  group_by(Index) %>% 
+  summarize(Avg_Return = mean(Daily_Return, na.rm = TRUE), Avg_Return_Perc. =   mean(Daily_Return_Perc., na.rm = TRUE)) %>% 
+  ggplot(aes(Index, Avg_Return, fill = Index))+
+  geom_bar(stat = "identity")+
+  geom_hline(yintercept = 0)+
+  ylab("Average Price Return ($)")
+```
+*Q2*
+
+Let's take a look at the exchange returns across time. What is the Daily Return(%) over time by Index? Are there noticeable anomalies? 
+```{r question 2, warning=FALSE}
+# Daily Return(%) against time (color by index)
+indexD %>% 
+  mutate(Daily_Return = `Adj Close`-lag(`Adj Close`)) %>% 
+  mutate(Daily_Return_Perc. = ((`Adj Close`-lag(`Adj Close`))*100)/lag(`Adj Close`)) %>%
+  ggplot(aes(Date, Daily_Return_Perc.)) + 
+  geom_line(aes(color = Index))+
+  geom_hline(aes(yintercept = 0), color = "black", alpha = 0.5)+
+  ylab("Daily Return (%)")
+```
+
+
+Using Daily Return and Daily Return Percentage is very useful in standardizing the data and allow us to work with mean and standard deviation data in later plots.
+```{r daily_returns}
+# Incorporating Daily_Return and Daily_Return_Perc. into dataset
+indexD$Daily_Return <- indexD$`Adj Close`-lag(indexD$`Adj Close`)
+indexD$Daily_Return_Perc. <- (indexD$`Adj Close`-lag(indexD$`Adj Close`))*100/lag(indexD$`Adj Close`)
+
+```
+
+
+Left joining indexD data with indexI that contains the Exchange name and countries associated with each Index. New index would be called "fullindex" and extracts "Year" from the Date column.
+```{r leftjoin indexI}
+# Left join indexI for countries by Index
+fullindex <- indexI %>% 
+  left_join(indexD) 
+
+fullindex$Year <- as.POSIXlt(fullindex$Date)$year + 1900
+```
+
+*Q3*
+
+Stock exchanges play into the risk-reward relationship. Ideally, the more risk you take on, the higher the reward to compensate for higher risk. Is there a correlation in the data between average return and volatility (standard deviation)? Do some indexes experience higher reward for lower risk?
+```{r risk vs. reward, warning=FALSE}
+fullindex%>% 
+  group_by(Region,Index,Exchange) %>% 
+  summarize(Count = n(), Avg_Return = mean(Daily_Return, na.rm = TRUE), 
+            Avg_Return_Perc. = mean(Daily_Return_Perc., na.rm = TRUE),
+            Volatility = sd(Daily_Return_Perc., na.rm = TRUE),  #,
+            Duration = year(today()) - min(as.POSIXlt(Date)$year + 1900))%>% 
+  arrange(desc(Avg_Return_Perc.)) %>% 
+  ggplot(aes(Avg_Return_Perc., Volatility))+
+  geom_point(aes(color = Exchange))+
+  geom_text(aes(label = paste0(Index)), nudge_y = 0.05, size=3)
+```
+It appears that there is no clear direct correlation with the exchange data provided between average return percentage and standard deviation. As a result, you have indexes like the NYA (New York Stock Exchange) that generates the same mean price return for lower volatility than GSPTSE, SSMI, TWII, etc.
+
+
+*Q4*
+
+It is noticeable that some exchanges have been in place longer than others, and this seems to affect the return results. The Johannesburg Stock Exchange, for example, tends to show strong volatility and average return compared to large long-running exchanges. Is there an inverse relationship between index duration and avg_return_perc.?
+```{r duration vs. avg_return_perc., message=FALSE, warning=FALSE}
+fullindex %>% 
+  group_by(Region,Exchange,Index) %>% 
+  summarize(Count = n(), Avg_Return = mean(Daily_Return, na.rm = TRUE), 
+            Avg_Return_Perc. = mean(Daily_Return_Perc., na.rm = TRUE), #,
+            Duration = year(today()) - min(as.POSIXlt(Date)$year + 1900)) %>% 
+  ggplot(aes(Duration,Avg_Return_Perc.))+
+  geom_point(aes(color = Exchange))+
+  geom_smooth()+
+  geom_text(aes(label = paste0(Index)),nudge_y=0.003, size=3)+
+  geom_hline(yintercept=0)+
+  geom_vline(xintercept=0)+
+  coord_cartesian(xlim=c(0,60))+
+  ylab("Average Price Return (%)")
+```
+
+
+*Q5*
+
+How did the four largest indices(NYA, IXIC, GSPTSE, N225) perform annually from 2000 to 2021?
+```{r largest indices, message=FALSE, warning=FALSE}
+fullindex %>% 
+  filter(Index == c("NYA","IXIC","GSPTSE","N225")) %>%
+  group_by(Index, Exchange, Year) %>% 
+  summarize(Avg_Return_Perc. = mean(Daily_Return_Perc., na.rm = TRUE)) %>% 
+  ggplot(aes(Year, Avg_Return_Perc.))+
+  geom_line(aes(color = Exchange, linetype = Exchange))+
+  geom_hline(yintercept=0)+
+  xlim(2000,2020)+
+  ylim(-1,1)
+```
+
+*Q6*
+
+Create a new index composed of the four chosen indices and track its projection over time. 
+```{r new_index_large}
+new_index_large <- fullindex %>% 
+  filter(Index == c("NYA","IXIC","GSPTSE","N225")) %>% 
+  group_by(Year) %>%
+  summarize(Price_Index = mean(`Adj Close`, na.rm = TRUE)) %>% 
+  ggplot()+
+  geom_line(aes(Year, Price_Index), color="green")+
+  labs(title = "Index Basket (NYA, IXIC, GSPSTE, N225)")
+
+new_index_large
+```
+
+
+*Q7*
+
+Compare the performance of the other 10 stocks from 2000 to 2010 under the new index "new_index_small".
+```{r new_index_small, message=FALSE, warning=FALSE}
+new_index_small <- fullindex %>% 
+  filter(Index == c("HSI","000001.SS","N100","399001.SZ","NSEI","GDAXI","KS11","SSMI","TWII","J203.JO")) %>% 
+  group_by(Year) %>%
+  summarize(Price_Index = mean(`Adj Close`, na.rm = TRUE)) %>% 
+  ggplot()+
+  geom_line(aes(Year, Price_Index),color="blue")
+
+new_index_small
+```
+
+*Q8*
+
+```{r variability, message=FALSE, warning=FALSE}
+#Compare the variability of the four chosen stocks from 2000 to 2010. The lowest index 
+#price is counted as 0 and the highest is a 1. 
+scale_level <- function(index){
+  (index - min(index,na.rm=TRUE))/(max(index,na.rm=TRUE) - min(index,na.rm=TRUE))
+}
+
+#Spread the index column
+four_indices <- fullindex %>%
+  filter(Index == c("NYA","IXIC","GSPTSE","N225"), Year<=2021, Year>=2000) %>% 
+  select(Date, Index, Daily_Return_Perc.) %>% 
+  spread(Index,Daily_Return_Perc.) %>% 
+  mutate(var_GSPTSE = scale_level(GSPTSE),
+         var_IXIC = scale_level(IXIC),
+         var_N225 = scale_level(N225),
+         var_NYA = scale_level(NYA)) %>% 
+  arrange(desc(Date))
+
+four_indices
+```
+*Q9*
+
+Generate density plots of the scaled values to compare the variability of the chosen indices. Plot one per facet. Is there a normal distribution for all?
+```{r density plots, message=FALSE, warning=FALSE}
+four_indices %>% 
+  gather(GSPTSE:NYA, key=Index,value=Daily_Return_Perc.) %>% 
+  gather(var_GSPTSE:var_NYA, key=varIndex,value=Scaled_Price) %>% 
+  group_by(Date,Scaled_Price) %>% 
+  ggplot(aes(Scaled_Price,color=varIndex))+
+  geom_density()+
+  facet_wrap(~varIndex)
+
+```
+```{r all densities, message=FALSE, warning=FALSE}
+all_indices <- fullindex %>%
+  filter(Year<=2021, Year>=2000) %>% 
+  select(Date, Index, Daily_Return_Perc.) %>% 
+  spread(Index,Daily_Return_Perc.) %>% 
+  mutate(var_GSPTSE = scale_level(GSPTSE),
+         var_IXIC = scale_level(IXIC),
+         var_N225 = scale_level(N225),
+         var_NYA = scale_level(NYA),
+         var_HSI = scale_level(HSI),
+         var_000001.SS = scale_level(`000001.SS`),
+         var_N100 = scale_level(N100),
+         var_399001.SZ = scale_level(`399001.SZ`),
+         var_NSEI = scale_level(NSEI),
+         var_GDAXI = scale_level(GDAXI),
+         var_KS11 = scale_level(KS11),
+         var_SSMI = scale_level(SSMI),
+         var_TWII = scale_level(TWII),
+         var_J203.JO = scale_level(J203.JO))
+
+all_indices %>% 
+  gather(GSPTSE:J203.JO, key=Index,value=Daily_Return_Perc.) %>% 
+  gather(var_GSPTSE:var_J203.JO, key=varIndex,value=Scaled_Price) %>% 
+  group_by(Date,Scaled_Price) %>% 
+  ggplot(aes(Scaled_Price,color=varIndex))+
+  geom_density()+
+  facet_wrap(~varIndex)
+
+```
+
